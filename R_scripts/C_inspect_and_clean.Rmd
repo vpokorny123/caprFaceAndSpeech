@@ -1,0 +1,151 @@
+---
+title: "Inspect and Clean"
+output: html_document
+date: "2024-08-23"
+---
+The goal of this document is to look through all of the variables of interest and
+make sure they are behaving in ways that seem correct. This will mainly involve
+looking at histograms and trying to do some quality checks.
+```{r}
+library(dplyr)
+library(tidyr)
+local_dir <- '/Users/victorpokorny/Library/CloudStorage/GoogleDrive-vpokorny123@gmail.com/My Drive/'
+load(paste0(local_dir,'CAPR SWS and Mooney/RData/merged_data.RData'))
+source("~/Desktop/R_functions/funcs.R")
+```
+
+
+
+
+```{r}
+#sws
+vars_to_inspect <- 
+  c('total_yes_responses_pre',
+    'total_yes_responses_post',
+    'total_yes_responses_all'
+    )
+
+for (j in vars_to_inspect){
+  label = j
+  vjp_hist(merged_df[[j]],j)
+}
+```
+```{r}
+#mooney
+vars_to_inspect <- 
+  c('catch_faces_reported',
+    'inverted_faces_reported',
+    'upright_faces_reported',
+    'inverted_gender_correct_percent',
+    'inverted_age_correct_percent'
+    )
+
+for (j in vars_to_inspect){
+  label = j
+  vjp_hist(merged_df[[j]],j)
+}  
+
+problem_subs<- merged_df$src_subject_id[
+  !is.na(merged_df$inverted_faces_reported) &
+    merged_df$inverted_age_correct_percent+ 
+    merged_df$inverted_gender_correct_percent == 0 &
+     merged_df$inverted_faces_reported >10]
+
+merged_df <- merged_df[!merged_df$src_subject_id %in% problem_subs , ]
+
+```
+
+
+
+```{r}
+#demo
+vars_to_inspect <- 
+  c('sex',
+    'site',
+    'demo_hispanic',
+    'demo_middleeastern',
+    'demo_biological_sex',
+    'demo_gender_three_groups',
+    'demo_sexuality',
+    'demo_mother_edu',
+    'demo_father_edu',
+    'demo_us_born',
+    'demo_immigrated', # way too many NAs; avoid for now
+    'demo_refugee_status',
+    'demo_national_standing',
+    'demo_family_num',
+    'demo_community_standing',
+    'demo_community_race', # I don't know what the values mean so avoid for now
+    'demo_community', # I don't know what the values mean so avoid for now
+    'demo_parents_born_usa', # only has one value, avoid for now
+    'demo_household_income' # tricky variable cuz of low reporters, probably avoid for now
+    )
+
+for (j in vars_to_inspect){
+  label = j
+  barplot(table(merged_df[[j]]),main = label)
+  print(sum(is.na(merged_df[[j]]) & merged_df$visit == 'bl'))
+} 
+``` 
+
+
+
+```{r}
+#now save out sparser df
+#let's create some prettier names and then save out
+merged_df<-merged_df %>% mutate(
+  `Inverted Face Reports`                    = inverted_faces_reported,
+  `Speech Reports`                           = total_yes_responses_all,
+  `SIPS Total Positive`                      = sips_p_total,
+  total_yes_responses_intell                 = hit_sum_all,
+  total_yes_responses_unintell               = false_sum_all,
+  `Unusual Thought Content/Delusional Ideas` = sips_p1_sev,
+  `Suspiciousness/Persecutory Ideas`         = sips_p2_sev,
+  `Grandiose Ideas`                          = sips_p3_sev,
+  `Perceptual Abnormalities/Hallucinations`  = sips_p4_sev,
+  `Disorganized Communication`               = sips_p5_sev
+)
+
+merged_df$phenotype_final<- factor(merged_df$phenotype_four_groups,
+                                   levels = c('chr','hsc_sub','hsc_other','hc'))
+merged_df$phenotype_final<- dplyr::recode(merged_df$phenotype_final,
+                                          chr = 'CHR',
+                                          hsc_sub = 'PLE',
+                                          hsc_other = 'CLN',
+                                          hc = 'CON')
+#remove folks with NA as phenotype
+merged_df <- merged_df[!is.na(merged_df$phenotype_final),]
+
+#let's add some useful composite variables 
+X <- merged_df[c('total_yes_responses_all','inverted_faces_reported')]
+result<-unifactorScores(X)
+merged_df$`Composite Score` <- result$scores
+
+merged_df$`Composite Score Sum` <- merged_df$`Speech Reports` + 
+  merged_df$`Inverted Face Reports`
+
+merged_df$`Inverted Gender and Age Correct` <- 
+  merged_df$inverted_gender_correct + merged_df$inverted_age_correct
+
+merged_df$`Inverted Gender and Age Percent Correct` <- 
+  (merged_df$inverted_gender_correct_percent + 
+  merged_df$inverted_age_correct_percent)/2
+
+merged_df$`Speech Reports Unprimed` <- 
+  merged_df$total_yes_responses_pre
+
+merged_df$`Speech Reports Primed` <- 
+  merged_df$total_yes_responses_post
+
+X <- merged_df[c('total_yes_responses_pre','inverted_faces_reported')]
+result<-unifactorScores(X)
+merged_df$`Composite Score Unprimed` <- result$scores
+
+merged_df$`Composite Score Sum Unprimed` <- merged_df$`Speech Reports Unprimed` + 
+  merged_df$`Inverted Face Reports`
+
+
+save(merged_df,
+     file = paste0(local_dir,
+                   'CAPR SWS and Mooney/RData/merged_data_sparse.RData'))
+```
